@@ -1,0 +1,4 @@
+.vscode
+node_modules
+headers.txt
+package-lock.json
