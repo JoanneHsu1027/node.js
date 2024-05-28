@@ -5,6 +5,10 @@ import express from "express";
 import multer from "multer";
 import upload from "./utils/upload-imgs.js";
 import admin2Router from "./routes/admin2.js";
+import session from "express-session";
+import moment from "moment-timezone";
+import db from "./utils/connect-mysql.js";
+import abRouter from "./routes/address-book.js"
 
 // tmp_uploads 暫存的資料夾
 // const upload = multer({ dest: "tmp_uploads/" });
@@ -19,9 +23,23 @@ app.use(express.urlencoded({ extended: true }));
 // 只會解析 application/json
 app.use(express.json());
 
+app.use(
+  session({
+    saveUninitialized: false,
+    resave: false,
+    secret: "dkfgdlkg8496749KHJKHLd",
+    /*
+    cookie: {
+      maxAge: 1800_000
+    }
+    */
+  })
+);
+
 // 自訂頂層的 middleware
 app.use((req, res, next) => {
   res.locals.title = "小新的網頁";
+
   next();
 });
 
@@ -31,6 +49,8 @@ app.get("/", (req, res) => {
   res.locals.title = "首頁 | " + res.locals.title;
   res.render("home", { name: "Shinder" });
 });
+
+app.use("/address-book", abRouter);
 
 app.get("/json-sales", (req, res) => {
   const sales = [
@@ -99,6 +119,53 @@ app.get(/^\/m\/09\d{2}-?\d{3}-?\d{3}$/i, (req, res) => {
   res.json({ u });
 });
 app.use("/admin2", admin2Router);
+
+app.get("/try-sess", (req, res) => {
+  // 要有 session 的 middleware 才有 req.session
+
+  // req.session.myNum = req.session.myNum || 1;
+  req.session.myNum ||= 0; // 如果 falsy 就設定為 0
+  req.session.myNum++;
+  res.json(req.session);
+});
+
+app.get("/try-moment", (req, res) => {
+  const fm = "YYYY-MM-DD HH:mm:ss";
+  const m1 = moment(); // 當下時間的 moment 物件
+  const m2 = moment(new Date()); // 當下時間的 moment 物件
+  const m3 = moment("2023-10-25");
+
+  res.json({
+    m1a: m1.format(fm),
+    m1b: m1.tz("Europe/London").format(fm),
+    m2a: m2.format(fm),
+    m2b: m2.tz("Europe/London").format(fm),
+    m3a: m3.format(fm),
+    m3b: m3.tz("Europe/London").format(fm),
+  });
+});
+app.get("/try-moment2", (req, res) => {
+  const fm = "YYYY-MM-DD HH:mm:ss";
+  const m1 = moment("2024-02-29");
+  const m2 = moment("2024-05-35");
+  const m3 = moment("2023-02-29");
+
+  res.json([
+    m1.format(fm),
+    m1.isValid(),
+    m2.format(fm),
+    m2.isValid(),
+    m3.format(fm),
+    m3.isValid(),
+  ]);
+});
+
+app.get("/try-db", async (req, res) => {
+  const sql = "SELECT * FROM address_book LIMIT 3";
+
+  const [results, fields] = await db.query(sql);
+  res.json({ results, fields });
+});
 
 // ************
 // 設定靜態內容資料夾
