@@ -9,9 +9,10 @@ import session from "express-session";
 import moment from "moment-timezone";
 import db from "./utils/connect-mysql.js";
 import abRouter from "./routes/address-book.js"
+import cors from "cors";
+import mysql_session from "express-mysql-session";
+import bcrypt from "bcrypt";
 
-// tmp_uploads 暫存的資料夾
-// const upload = multer({ dest: "tmp_uploads/" });
 
 const app = express();
 
@@ -23,22 +24,31 @@ app.use(express.urlencoded({ extended: true }));
 // 只會解析 application/json
 app.use(express.json());
 
+const corsOptions = {
+  Credentials: true,
+  origin: (origin, cb) => {
+    console.log({ origin });
+    cb(null, true)  // 全部都允許
+  },
+};
+app.use(cors(corsOptions));
+
+const MysqlStore = mysql_session(session);
+const sessionStore = new MysqlStore({}, db);
+
 app.use(
   session({
     saveUninitialized: false,
     resave: false,
     secret: "dkfgdlkg8496749KHJKHLd",
-    /*
-    cookie: {
-      maxAge: 1800_000
-    }
-    */
+    store: sessionStore,
   })
 );
 
 // 自訂頂層的 middleware
 app.use((req, res, next) => {
   res.locals.title = "小新的網站";
+  res.locals.session = req.session; // 讓 template 可以使用 session
 
   next();
 });
@@ -166,6 +176,50 @@ app.get("/try-db", async (req, res) => {
   const [results, fields] = await db.query(sql);
   res.json({ results, fields });
 });
+
+app.get("/yahoo", async (req, res) => {
+  const r = await fetch("https://tw.yahoo.com/");
+  const txt = await r.text();
+  res.send(txt);
+});
+
+app.get("/login", async (req, res) => {
+  res.render("login");
+});
+app.post("/login", upload.none(), async (req, res) => {
+  const output = {
+    success: false,
+    code: 0,
+    body: req.body,
+  };
+  const sql = "SELECT * FROM members WHERE email=?";
+  const [rows] = await db.query(sql, [req.body.email]);
+  if (!rows.length) {
+    // 帳號是錯的
+    output.code = 400;
+    return res.json(output);
+  }
+  const result = await bcrypt.compare(req.body.password, rows[0].password);
+  if (!result) {
+    // 密碼是錯的
+    output.code = 420;
+    return res.json(output);
+  }
+  output.success = true;
+  // 把狀態記錄在 session 裡
+  req.session.admin = {
+    id: rows[0].id,
+    email: rows[0].email,
+    nickname: rows[0].nickname,
+  }
+  res.json(output);
+});
+
+app.get("/logout", (req, res) => {
+  delete req.session.admin;
+  res.redirect("/");
+});
+
 
 // ************
 // 設定靜態內容資料夾

@@ -23,10 +23,8 @@ const getListData = async (req) => {
 
   let where = " WHERE 1 ";
   if (keyword) {
-    // where += ` AND \`name\` LIKE '%${keyword}%' `; // 沒有處理 SQL injection
     const keyword_ = db.escape(`%${keyword}%`);
-    console.log(keyword_);
-    where += ` AND \`name\` LIKE ${keyword_} `; // 處理 SQL injection
+    where += ` AND ( \`name\` LIKE ${keyword_} OR \`mobile\` LIKE ${keyword_} ) `; // 處理 SQL injection
   }
   if (birth_begin) {
     const m = moment(birth_begin);
@@ -58,7 +56,9 @@ const getListData = async (req) => {
     console.log(sql);
     [rows] = await db.query(sql);
     rows.forEach((el) => {
-      el.birthday = moment(el.birthday).format(dateFormat);
+      const m = moment(el.birthday);
+      // 無效的日期格式, 使用空字串
+      el.birthday = m.isValid() ? m.format(dateFormat) : "";
     });
   }
   success = true;
@@ -72,6 +72,21 @@ const getListData = async (req) => {
     qs: req.query,
   };
 };
+
+// middleware
+router.use((req, res, next) => {
+  let u = req.url.split("?")[0];
+  if (u === "/") {
+    return next();
+  }
+  if (req.session.admin) {
+    // 有登入, 就通過
+    next();
+  } else {
+    // 沒有登入, 就跳到登入頁
+    res.redirect("/login");
+  }
+});
 
 router.get("/", async (req, res) => {
   res.locals.title = "通訊錄列表 | " + res.locals.title;
@@ -95,12 +110,6 @@ router.get("/add", async (req, res) => {
   res.locals.pageName = "ab_add";
   res.render("address-book/add");
 });
-/*
-// 處理 multipart/form-data
-router.post("/add", [upload.none()], async (req, res) => {
-  res.json(req.body);
-});
-*/
 
 router.post("/add", async (req, res) => {
   // TODO: 欄位資料的檢查
@@ -116,15 +125,16 @@ router.post("/add", async (req, res) => {
 
   res.json({
     result,
-    success: !!result.affectedRows
+    success: !!result.affectedRows,
   });
 });
 
+// 刪除資料的 API
 router.delete("/api/:sid", async (req, res) => {
   const output = {
     success: false,
     code: 0,
-    result: {}
+    result: {},
   };
 
   const sid = +req.params.sid || 0;
@@ -137,6 +147,50 @@ router.delete("/api/:sid", async (req, res) => {
   output.result = result;
   output.success = !!result.affectedRows;
 
+  res.json(output);
+});
+
+// 編輯的表單頁
+router.get("/edit/:sid", async (req, res) => {
+  const sid = +req.params.sid || 0;
+  if (!sid) {
+    return res.redirect("/address-book");
+  }
+
+  const sql = `SELECT * FROM address_book WHERE sid=${sid}`;
+  const [rows] = await db.query(sql);
+  if (!rows.length) {
+    // 沒有該筆資料
+    return res.redirect("/address-book");
+  }
+
+  // res.json(rows[0]);
+
+  rows[0].birthday = moment(rows[0].birthday).format(dateFormat);
+
+  res.render("address-book/edit", rows[0])
+});
+
+// 處理編輯的表單
+router.put("/api/:sid", upload.none(), async (req, res) => {
+  const output = {
+    success: false,
+    code: 0,
+    result: {},
+  };
+  const sid = +req.params.sid || 0;
+  if (!sid) {
+    return res.json(output);
+  }
+
+  try {
+    const sql = "UPDATE `address_book` SET ? WHERE sid=? ";
+    const [result] = await db.query(sql, [req.body, sid]);
+    output.result = result;
+    output.success = !!(result.affectedRows && result.changedRows);
+  } catch (ex) {
+    output.error = ex;
+  }
   res.json(output);
 });
 
